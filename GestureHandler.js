@@ -15,6 +15,7 @@ import {
   StyleSheet,
   FlatList,
   Platform,
+  DeviceEventEmitter,
 } from 'react-native';
 import processColor from 'react-native/Libraries/StyleSheet/processColor';
 import Touchable from 'react-native/Libraries/Components/Touchable/Touchable';
@@ -39,6 +40,16 @@ UIManager.clearJSResponder = () => {
   RNGestureHandlerModule.handleClearJSResponder();
   oldClearJSResponder();
 };
+
+let allowTouches = true;
+// Toggled inspector block touches events in order to allow inspecting on Android
+// As event emitter could be hooked only on toggling an inspector
+if (__DEV__ && Platform.OS === 'android') {
+  DeviceEventEmitter.addListener(
+    'toggleElementInspector',
+    () => (allowTouches = !allowTouches)
+  );
+}
 
 // Add gesture specific events to RCTView's directEventTypes object exported via UIManager.
 // Once new event types are registered with react it is possible to dispatch these to other
@@ -185,6 +196,9 @@ function createHandler(
         }
         handlerIDToTag[props.id] = this._handlerTag;
       }
+      this.state = {
+        allowTouches,
+      };
     }
 
     _onGestureHandlerEvent = event => {
@@ -226,6 +240,10 @@ function createHandler(
     };
 
     componentWillUnmount() {
+      // Remove listeger on toggling inspector if needed
+      if (this.debugListener) {
+        this.debugListener.remove();
+      }
       RNGestureHandlerModule.dropGestureHandler(this._handlerTag);
       if (this._updateEnqueued) {
         clearImmediate(this._updateEnqueued);
@@ -236,6 +254,19 @@ function createHandler(
     }
 
     componentDidMount() {
+      // If the inspector is getting opened all touches events in JS are getting block
+      // in order to allow inspecting.
+      if (__DEV__ && Platform.OS === 'android') {
+        this.debugListener = DeviceEventEmitter.addListener(
+          'toggleElementInspector',
+          () => {
+            this.setState(prev => ({
+              allowTouches: !prev.allowTouches ? true : null,
+            }));
+            this._update();
+          }
+        );
+      }
       this._viewTag = findNodeHandle(this._viewNode);
       this._config = filterConfig(
         transformProps ? transformProps(this.props) : this.props,
@@ -372,8 +403,9 @@ function createHandler(
         {
           ref: this._refHandler,
           collapsable: false,
-          onGestureHandlerEvent: gestureEventHandler,
-          onGestureHandlerStateChange: gestureStateEventHandler,
+          onGestureHandlerEvent: this.state.allowTouches && gestureEventHandler,
+          onGestureHandlerStateChange:
+            this.state.allowTouches && gestureStateEventHandler,
         },
         children
       );
