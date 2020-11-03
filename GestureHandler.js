@@ -6,6 +6,7 @@ export {
   default as NativeViewGestureHandler,
 } from './NativeViewGestureHandler';
 export { default as State } from './State';
+export { default as DragState, DragMode } from './DragConstants';
 
 export * from './GestureButtons';
 export * from './GestureComponents';

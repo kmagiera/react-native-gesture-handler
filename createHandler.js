@@ -43,8 +43,8 @@ if (UIManager.getConstants) {
 
 // Wrap JS responder calls and notify gesture handler manager
 const {
-  setJSResponder: oldSetJSResponder = () => {},
-  clearJSResponder: oldClearJSResponder = () => {},
+  setJSResponder: oldSetJSResponder = () => { },
+  clearJSResponder: oldClearJSResponder = () => { },
 } = UIManager;
 UIManager.setJSResponder = (tag, blockNativeResponder) => {
   RNGestureHandlerModule.handleSetJSResponder(tag, blockNativeResponder);
@@ -233,16 +233,7 @@ export default function createHandler(
         });
       }
 
-      this._createGestureHandler(
-        filterConfig(
-          transformProps ? transformProps(this.props) : this.props,
-          {
-            ...(this.constructor.propTypes || propTypes),
-            ...customNativeProps,
-          },
-          config
-        )
-      );
+      this._createGestureHandler(this._filterConfig());
       this._attachGestureHandler(findNodeHandle(this._viewNode));
     }
 
@@ -254,24 +245,23 @@ export default function createHandler(
       this._update();
     }
 
-    _update() {
-      const newConfig = filterConfig(
-        transformProps ? transformProps(this.props) : this.props,
-        { ...(this.constructor.propTypes || propTypes), ...customNativeProps },
+    _filterConfig(props = this.props) {
+      return filterConfig(
+        transformProps ? transformProps(props) : props,
+        { ...this.constructor.propTypes || propTypes, ...customNativeProps },
         config
       );
+    }
+
+    _update() {
+      const newConfig = this._filterConfig();
       if (!deepEqual(this._config, newConfig)) {
         this._updateGestureHandler(newConfig);
       }
     }
 
     setNativeProps(updates) {
-      const mergedProps = { ...this.props, ...updates };
-      const newConfig = filterConfig(
-        transformProps ? transformProps(mergedProps) : mergedProps,
-        { ...(this.constructor.propTypes || propTypes), ...customNativeProps },
-        config
-      );
+      const newConfig = this._filterConfig({ ...this.props, ...updates });
       this._updateGestureHandler(newConfig);
     }
 
@@ -353,3 +343,4 @@ export default function createHandler(
   }
   return Handler;
 }
+

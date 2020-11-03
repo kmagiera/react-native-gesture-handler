@@ -1,25 +1,43 @@
 package com.swmansion.gesturehandler.react;
 
+import android.app.Activity;
 import android.content.Context;
+import android.graphics.Point;
+import android.util.Log;
+import android.view.DragEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 
+import androidx.annotation.Nullable;
+
 import com.facebook.react.ReactRootView;
+import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.JSApplicationIllegalArgumentException;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
+import com.facebook.react.bridge.ReadableArray;
 import com.facebook.react.bridge.ReadableMap;
 import com.facebook.react.bridge.ReadableType;
+import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.WritableMap;
+import com.facebook.react.bridge.WritableNativeArray;
+import com.facebook.react.bridge.WritableNativeMap;
 import com.facebook.react.common.MapBuilder;
+import com.facebook.react.common.ReactConstants;
 import com.facebook.react.module.annotations.ReactModule;
+import com.facebook.react.modules.i18nmanager.I18nUtil;
 import com.facebook.react.uimanager.NativeViewHierarchyManager;
 import com.facebook.react.uimanager.PixelUtil;
 import com.facebook.react.uimanager.UIBlock;
 import com.facebook.react.uimanager.UIManagerModule;
 import com.facebook.react.uimanager.events.EventDispatcher;
+import com.facebook.yoga.YogaDisplay;
+import com.swmansion.gesturehandler.DragDropGestureHandler;
+import com.swmansion.gesturehandler.DragGestureHandler;
+import com.swmansion.gesturehandler.DragGestureUtils;
+import com.swmansion.gesturehandler.DropGestureHandler;
 import com.swmansion.gesturehandler.FlingGestureHandler;
 import com.swmansion.gesturehandler.GestureHandler;
 import com.swmansion.gesturehandler.LongPressGestureHandler;
@@ -30,13 +48,18 @@ import com.swmansion.gesturehandler.PinchGestureHandler;
 import com.swmansion.gesturehandler.RotationGestureHandler;
 import com.swmansion.gesturehandler.TapGestureHandler;
 
+import org.json.JSONArray;
+import org.json.JSONException;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import androidx.annotation.Nullable;
-
+import static com.swmansion.gesturehandler.DragGestureUtils.KEY_DATA;
+import static com.swmansion.gesturehandler.DragGestureUtils.KEY_SOURCE_APP;
+import static com.swmansion.gesturehandler.DragGestureUtils.KEY_TYPES;
 import static com.swmansion.gesturehandler.GestureHandler.HIT_SLOP_NONE;
+import static com.swmansion.gesturehandler.GestureHandler.STATE_END;
 
 @ReactModule(name=RNGestureHandlerModule.MODULE_NAME)
 public class RNGestureHandlerModule extends ReactContextBaseJavaModule {
@@ -81,7 +104,7 @@ public class RNGestureHandlerModule extends ReactContextBaseJavaModule {
   private static final String KEY_PAN_MAX_POINTERS = "maxPointers";
   private static final String KEY_PAN_AVG_TOUCHES = "avgTouches";
   private static final String KEY_NUMBER_OF_POINTERS = "numberOfPointers";
-  private static final String KEY_DIRECTION= "direction";
+  private static final String KEY_DIRECTION = "direction";
 
   private abstract static class HandlerFactory<T extends GestureHandler>
           implements RNGestureHandlerEventDataExtractor<T> {
@@ -236,24 +259,9 @@ public class RNGestureHandlerModule extends ReactContextBaseJavaModule {
     }
   }
 
-  private static class PanGestureHandlerFactory extends HandlerFactory<PanGestureHandler> {
+  private static abstract class PanGestureHandlerBaseFactory<T extends PanGestureHandler> extends HandlerFactory<T> {
     @Override
-    public Class<PanGestureHandler> getType() {
-      return PanGestureHandler.class;
-    }
-
-    @Override
-    public String getName() {
-      return "PanGestureHandler";
-    }
-
-    @Override
-    public PanGestureHandler create(Context context) {
-      return new PanGestureHandler(context);
-    }
-
-    @Override
-    public void configure(PanGestureHandler handler, ReadableMap config) {
+    public void configure(T handler, ReadableMap config) {
       super.configure(handler, config);
       boolean hasCustomActivationCriteria = false;
       if(config.hasKey(KEY_PAN_ACTIVE_OFFSET_X_START)) {
@@ -324,7 +332,7 @@ public class RNGestureHandlerModule extends ReactContextBaseJavaModule {
     }
 
     @Override
-    public void extractEventData(PanGestureHandler handler, WritableMap eventData) {
+    public void extractEventData(T handler, WritableMap eventData) {
       super.extractEventData(handler, eventData);
       eventData.putDouble("x", PixelUtil.toDIPFromPixel(handler.getLastRelativePositionX()));
       eventData.putDouble("y", PixelUtil.toDIPFromPixel(handler.getLastRelativePositionY()));
@@ -335,6 +343,349 @@ public class RNGestureHandlerModule extends ReactContextBaseJavaModule {
       eventData.putDouble("velocityX", PixelUtil.toDIPFromPixel(handler.getVelocityX()));
       eventData.putDouble("velocityY", PixelUtil.toDIPFromPixel(handler.getVelocityY()));
     }
+  }
+
+  private static class PanGestureHandlerFactory extends PanGestureHandlerBaseFactory<PanGestureHandler> {
+    @Override
+    public Class<PanGestureHandler> getType() {
+      return PanGestureHandler.class;
+    }
+
+    @Override
+    public String getName() {
+      return "PanGestureHandler";
+    }
+
+    @Override
+    public PanGestureHandler create(Context context) {
+      return new PanGestureHandler(context);
+    }
+  }
+
+  private static abstract class DragDropGestureHandlerFactory<T extends DragDropGestureHandler> extends PanGestureHandlerBaseFactory<T> {
+
+
+    private static class MapResolver implements DragGestureUtils.DataResolver<ReadableMap, ReadableArray> {
+
+      private ReadableMap mSource;
+      private final ReactApplicationContext mContext;
+
+      MapResolver(ReactApplicationContext context) {
+        mContext = context;
+        mSource = null;
+      }
+      MapResolver(ReactApplicationContext context, ReadableMap map) {
+        mContext = context;
+        mSource = map;
+      }
+
+      @Override
+      public String stringify(DragGestureHandler<ReadableMap, ReadableArray>[] handlers) {
+        JSONArray data = new JSONArray();
+        ReadableMap in;
+        WritableMap out;
+        for (DragGestureHandler<ReadableMap, ReadableArray> handler : handlers) {
+          in = handler.getDataResolver().data();
+          if (in != null) {
+            out = new WritableNativeMap();
+            out.merge(in);
+            out.putInt("target", handler.getTag());
+            try {
+              data.put(JSONUtil.convertMapToJson(out));
+            } catch (JSONException e) {
+              Log.e(ReactConstants.TAG, "[GESTURE HANDLER] Could not parse drag event data to JSON, raw data: " + out, e);
+            }
+          }
+        }
+        return data.toString();
+      }
+
+      @Override
+      public ReadableArray parse(String sources) {
+        try {
+          return JSONUtil.convertJsonToArray(new JSONArray(sources));
+        } catch (JSONException e) {
+          Log.e(ReactConstants.TAG, "[GESTURE HANDLER] Could not parse drag event data to JSON, raw data: " + sources, e);
+          WritableMap map = Arguments.createMap();
+          WritableArray out = Arguments.createArray();
+          map.putString("rawData", sources);
+          out.pushMap(map);
+          return out;
+        }
+      }
+
+      @Nullable
+      @Override
+      public ReadableMap data() {
+        return mSource;
+      }
+
+      @Override
+      public Activity getActivity() {
+        return mContext.getCurrentActivity();
+      }
+    }
+
+    private static class ReactDragGestureHandler extends DragGestureHandler<ReadableMap, ReadableArray> {
+      ReactDragGestureHandler(Context context) {
+        super(context);
+        setDataResolver(new MapResolver((ReactApplicationContext) context));
+        setShadowConfig(new MultiDragShadowBuilder.Config());
+      }
+
+      @Override
+      public DragGestureHandler<ReadableMap, ReadableArray> setShadowConfig(MultiDragShadowBuilder.Config config) {
+        config.isRTL = I18nUtil.getInstance().isRTL(getContext());
+        return super.setShadowConfig(config);
+      }
+
+      @Override
+      public String getDebugTag() {
+        return ReactConstants.TAG;
+      }
+
+      /**
+       * This is used to handle UI changes natively for responsiveness in the case which
+       * {@link DragGestureHandler#setDragMode(int)} was set to {@link DragGestureUtils#DRAG_MODE_MOVE},
+       * making the drag target seem as if it were moved from it's parent after the drop has occurred.
+       * JS is still in charge of actually removing the view.
+       */
+      @Override
+      public void onDrop() {
+        super.onDrop();
+        if (getDragMode() == DragGestureUtils.DRAG_MODE_MOVE) {
+          ReactApplicationContext context = ((ReactApplicationContext) getContext());
+          final UIManagerModule uiManager = context.getNativeModule(UIManagerModule.class);
+          View[] views = getViews();
+          final int[] tags = new int[views.length];
+          for (int i = 0; i < views.length; i++) {
+            tags[i] = views[i].getId();
+          }
+          context.runOnNativeModulesQueueThread(new Runnable() {
+            @Override
+            public void run() {
+              for (int tag: tags) {
+                uiManager.getUIImplementation()
+                        .resolveShadowNode(tag)
+                        .setDisplay(YogaDisplay.NONE);
+              }
+            }
+          });
+        }
+      }
+    }
+
+    private static class DragGestureHandlerFactory extends DragDropGestureHandlerFactory<ReactDragGestureHandler> {
+
+      private static final String KEY_SHADOW_VIEW_TAG = "shadowViewTag";
+      private static final String KEY_DRAG_MODE = "dragMode";
+      private static final String DRAG_MODE_MOVE = "move";
+      private static final String DRAG_MODE_MOVE_RESTORE = "move-restore";
+      private static final String DRAG_MODE_COPY = "copy";
+      private static final String DRAG_MODE_NONE = "none";
+      private static final String KEY_DRAG_SHADOW_CONFIG = "shadowConfig";
+      private static final String KEY_DRAG_SHADOW_CONFIG_MARGIN = "margin";
+      private static final String KEY_DRAG_SHADOW_CONFIG_OFFSET = "offset";
+      private static final String KEY_DRAG_SHADOW_CONFIG_OPACITY = "opacity";
+      private static final String KEY_DRAG_SHADOW_CONFIG_ENABLED = "multiShadowEnabled";
+
+      @Override
+      public Class<ReactDragGestureHandler> getType() {
+        return ReactDragGestureHandler.class;
+      }
+
+      @Override
+      public String getName() {
+        return "DragGestureHandler";
+      }
+
+      @Override
+      public ReactDragGestureHandler create(Context context) {
+        return new ReactDragGestureHandler(context);
+      }
+
+      @Override
+      public void configure(final ReactDragGestureHandler handler, ReadableMap config) {
+        super.configure(handler, config);
+        ReadableType type;
+        if(config.hasKey(KEY_SHADOW_VIEW_TAG)) {
+          type = config.getType(KEY_SHADOW_VIEW_TAG);
+          if (type == ReadableType.Null) {
+            handler.setShadowBuilderView(null);
+          } else if (type == ReadableType.Number) {
+            final int shadowViewTag = config.getInt(KEY_SHADOW_VIEW_TAG);
+            ((ReactApplicationContext) handler.getContext())
+                    .getNativeModule(UIManagerModule.class)
+                    .addUIBlock(new UIBlock() {
+                      @Override
+                      public void execute(NativeViewHierarchyManager nativeViewHierarchyManager) {
+                        View view = nativeViewHierarchyManager.resolveView(shadowViewTag);
+                        handler.setShadowBuilderView(view);
+                      }
+                    });
+          }
+        }
+        if (config.hasKey(KEY_DRAG_MODE)) {
+          type = config.getType(KEY_DRAG_MODE);
+          if (type == ReadableType.Number) {
+            handler.setDragMode(config.getInt(KEY_DRAG_MODE));
+          } else if (type == ReadableType.String) {
+            int mode;
+            switch (config.getString(KEY_DRAG_MODE)) {
+              case DRAG_MODE_MOVE:
+                mode = DragGestureUtils.DRAG_MODE_MOVE;
+                break;
+              case DRAG_MODE_MOVE_RESTORE:
+                mode = DragGestureUtils.DRAG_MODE_MOVE_RESTORE;
+                break;
+              case DRAG_MODE_COPY:
+                mode = DragGestureUtils.DRAG_MODE_COPY;
+                break;
+              case DRAG_MODE_NONE:
+                mode = DragGestureUtils.DRAG_MODE_NONE;
+                break;
+              default:
+                throw new JSApplicationIllegalArgumentException(
+                  String.format("[GESTURE HANDLER] received bad %s prop of value %s",
+                    KEY_DRAG_MODE, config.getString(KEY_DRAG_MODE)));
+            }
+            handler.setDragMode(mode);
+          }
+        }
+        if (config.hasKey(KEY_DRAG_SHADOW_CONFIG)) {
+          ReadableMap shadowConfigIn = config.getMap(KEY_DRAG_SHADOW_CONFIG);
+          DragGestureHandler.MultiDragShadowBuilder.Config shadowConfig = new DragGestureHandler.MultiDragShadowBuilder.Config();
+          if (shadowConfigIn.hasKey(KEY_DRAG_SHADOW_CONFIG_ENABLED)) {
+            shadowConfig.multiShadowEnabled = shadowConfigIn.getBoolean(KEY_DRAG_SHADOW_CONFIG_ENABLED);
+          }
+          if (shadowConfigIn.hasKey(KEY_DRAG_SHADOW_CONFIG_MARGIN)) {
+            ReadableArray marginIn = shadowConfigIn.getArray(KEY_DRAG_SHADOW_CONFIG_MARGIN);
+            shadowConfig.margin = new Point(
+                    (int) PixelUtil.toPixelFromDIP(marginIn.getInt(0)),
+                    (int) PixelUtil.toPixelFromDIP(marginIn.getInt(1)));
+          }
+          if (shadowConfigIn.hasKey(KEY_DRAG_SHADOW_CONFIG_OFFSET)) {
+            ReadableArray offsetIn = shadowConfigIn.getArray(KEY_DRAG_SHADOW_CONFIG_OFFSET);
+            shadowConfig.offset = new Point(
+                    (int) PixelUtil.toPixelFromDIP(offsetIn.getInt(0)),
+                    (int) PixelUtil.toPixelFromDIP(offsetIn.getInt(1)));
+          }
+          if (shadowConfigIn.hasKey(KEY_DRAG_SHADOW_CONFIG_OPACITY)) {
+            ReadableArray opacityRange = shadowConfigIn.getArray(KEY_DRAG_SHADOW_CONFIG_OPACITY);
+            shadowConfig.minAlpha = (float) opacityRange.getDouble(0);
+            shadowConfig.maxAlpha = (float) opacityRange.getDouble(1);
+          }
+          handler.setShadowConfig(shadowConfig);
+        }
+      }
+    }
+
+    private static class ReactDropGestureHandler extends DropGestureHandler<ReadableMap, ReadableArray> {
+      ReactDropGestureHandler(Context context) {
+        super(context);
+        setDataResolver(new MapResolver((ReactApplicationContext) context));
+      }
+    }
+
+    private static class DropGestureHandlerFactory extends DragDropGestureHandlerFactory<ReactDropGestureHandler> {
+
+      private static final String KEY_DRAG_DATA_PASS_PROPS = "nativeProps";
+
+      @Override
+      public Class<ReactDropGestureHandler> getType() {
+        return ReactDropGestureHandler.class;
+      }
+
+      @Override
+      public String getName() {
+        return "DropGestureHandler";
+      }
+
+      @Override
+      public ReactDropGestureHandler create(Context context) {
+        return new ReactDropGestureHandler(context);
+      }
+
+      @Override
+      public void extractEventData(ReactDropGestureHandler handler, WritableMap eventData) {
+        super.extractEventData(handler, eventData);
+        ReadableArray data = handler.getData();
+        ReadableMap dataFragment;
+        final WritableMap props = new WritableNativeMap();
+        if (data != null && handler.getState() == STATE_END && handler.getDropTarget() > 0) {
+          //  merge props
+          for (int i = data.size() - 1; i >= 0; i--) {
+            dataFragment = data.getMap(i);
+            if (dataFragment != null && dataFragment.hasKey(KEY_DRAG_DATA_PASS_PROPS) &&
+                    dataFragment.getType(KEY_DRAG_DATA_PASS_PROPS) == ReadableType.Map) {
+              props.merge(dataFragment.getMap(KEY_DRAG_DATA_PASS_PROPS));
+            }
+          }
+          if (props.keySetIterator().hasNextKey()) {
+            final int tag = handler.getDropTarget();
+            final ReactApplicationContext context = ((ReactApplicationContext) handler.getContext());
+            context.runOnUiQueueThread(new Runnable() {
+              @Override
+              public void run() {
+                UIManagerModule uiManagerModule = context.getNativeModule(UIManagerModule.class);
+                uiManagerModule.synchronouslyUpdateViewOnUIThread(tag, props);
+              }
+            });
+          }
+        }
+        eventData.putArray("data", data);
+        String sourceID = handler.getLastSourceAppID();
+        if (sourceID != null && !sourceID.equals(handler.getContext().getPackageName())) {
+          eventData.putString(KEY_SOURCE_APP, sourceID);
+        }
+      }
+    }
+
+    @Override
+    public void configure(T handler, ReadableMap config) {
+      super.configure(handler, config);
+      if(config.hasKey(KEY_TYPES)) {
+        ArrayList<Integer> types = new ArrayList<>();
+        ReadableType readableType = config.getType(KEY_TYPES);
+        if (readableType == ReadableType.Number) {
+          types.add(config.getInt(KEY_TYPES));
+        } else if (readableType == ReadableType.Array) {
+          ReadableArray typeArr = config.getArray(KEY_TYPES);
+          if (typeArr != null) {
+            for (int i = 0; i < typeArr.size(); i++) {
+              types.add(typeArr.getInt(i));
+            }
+          }
+        }
+        handler.setTypes(types);
+      }
+
+      if(config.hasKey(KEY_DATA) && config.getType(KEY_DATA) == ReadableType.Map) {
+        handler.setDataResolver(
+                new MapResolver(
+                        (ReactApplicationContext) handler.getContext(),
+                        config.getMap(KEY_DATA)
+                )
+        );
+      }
+    }
+
+    @Override
+    public void extractEventData(T handler, WritableMap eventData) {
+      super.extractEventData(handler, eventData);
+      eventData.putInt("dragState", handler.getDragAction());
+      eventData.putInt("dropTarget", handler.getDropTarget());
+      eventData.putInt("dragTarget", handler.getDragTarget());
+      int[] dragTargets = handler.getDragTargets();
+      if (dragTargets != null && dragTargets.length > 1) {
+        WritableArray dragTargetsArray = new WritableNativeArray();
+        for (int tag: dragTargets) {
+          dragTargetsArray.pushInt(tag);
+        }
+        eventData.putArray("dragTargets", dragTargetsArray);
+      }
+    }
+
   }
 
   private static class PinchGestureHandlerFactory extends HandlerFactory<PinchGestureHandler> {
@@ -432,6 +783,11 @@ public class RNGestureHandlerModule extends ReactContextBaseJavaModule {
     }
 
     @Override
+    public void onDragEvent(GestureHandler handler, DragEvent event) {
+      RNGestureHandlerModule.this.onDragEvent(handler, event);
+    }
+
+    @Override
     public void onStateChange(GestureHandler handler, int newState, int oldState) {
       RNGestureHandlerModule.this.onStateChange(handler, newState, oldState);
     }
@@ -444,9 +800,11 @@ public class RNGestureHandlerModule extends ReactContextBaseJavaModule {
           new PanGestureHandlerFactory(),
           new PinchGestureHandlerFactory(),
           new RotationGestureHandlerFactory(),
-          new FlingGestureHandlerFactory()
+          new FlingGestureHandlerFactory(),
+          new DragDropGestureHandlerFactory.DragGestureHandlerFactory(),
+          new DragDropGestureHandlerFactory.DropGestureHandlerFactory(),
   };
-  private final RNGestureHandlerRegistry mRegistry = new RNGestureHandlerRegistry();
+  private final RNGestureHandlerRegistry mRegistry;
 
   private RNGestureHandlerInteractionManager mInteractionManager =
           new RNGestureHandlerInteractionManager();
@@ -455,6 +813,7 @@ public class RNGestureHandlerModule extends ReactContextBaseJavaModule {
 
   public RNGestureHandlerModule(ReactApplicationContext reactContext) {
     super(reactContext);
+    mRegistry = new RNGestureHandlerRegistry(reactContext);
   }
 
   @Override
@@ -540,6 +899,18 @@ public class RNGestureHandlerModule extends ReactContextBaseJavaModule {
             "LEFT", GestureHandler.DIRECTION_LEFT,
             "UP", GestureHandler.DIRECTION_UP,
             "DOWN", GestureHandler.DIRECTION_DOWN
+    ), "DragState", MapBuilder.of(
+            "BEGAN", DragEvent.ACTION_DRAG_STARTED,
+            "ACTIVE", DragEvent.ACTION_DRAG_LOCATION,
+            "DROP", DragEvent.ACTION_DROP,
+            "END", DragEvent.ACTION_DRAG_ENDED,
+            "ENTERED", DragEvent.ACTION_DRAG_ENTERED,
+            "EXITED", DragEvent.ACTION_DRAG_EXITED
+    ), "DragMode", MapBuilder.of(
+            "MOVE", DragGestureUtils.DRAG_MODE_MOVE,
+            "MOVE_RESTORE", DragGestureUtils.DRAG_MODE_MOVE_RESTORE,
+            "COPY", DragGestureUtils.DRAG_MODE_COPY,
+            "NONE", DragGestureUtils.DRAG_MODE_NONE
     ));
   }
 
@@ -649,7 +1020,8 @@ public class RNGestureHandlerModule extends ReactContextBaseJavaModule {
     return null;
   }
 
-  private @Nullable HandlerFactory findFactoryForHandler(GestureHandler handler) {
+  private @Nullable
+  HandlerFactory findFactoryForHandler(GestureHandler handler) {
     for (int i = 0; i < mHandlerFactories.length; i++) {
       HandlerFactory factory = mHandlerFactories[i];
       if (factory.getType().equals(handler.getClass())) {
@@ -660,6 +1032,21 @@ public class RNGestureHandlerModule extends ReactContextBaseJavaModule {
   }
 
   private void onTouchEvent(GestureHandler handler, MotionEvent motionEvent) {
+    if (handler.getTag() < 0) {
+      // root containers use negative tags, we don't need to dispatch events for them to the JS
+      return;
+    }
+    if (handler.getState() == GestureHandler.STATE_ACTIVE) {
+      HandlerFactory handlerFactory = findFactoryForHandler(handler);
+      EventDispatcher eventDispatcher = getReactApplicationContext()
+              .getNativeModule(UIManagerModule.class)
+              .getEventDispatcher();
+      RNGestureHandlerEvent event = RNGestureHandlerEvent.obtain(handler, handlerFactory);
+      eventDispatcher.dispatchEvent(event);
+    }
+  }
+
+  private void onDragEvent(GestureHandler handler, DragEvent dragEvent) {
     if (handler.getTag() < 0) {
       // root containers use negative tags, we don't need to dispatch events for them to the JS
       return;

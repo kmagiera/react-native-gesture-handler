@@ -3,6 +3,7 @@ package com.swmansion.gesturehandler.react;
 import android.content.Context;
 import android.os.Bundle;
 import android.util.AttributeSet;
+import android.view.DragEvent;
 import android.view.MotionEvent;
 
 import com.facebook.react.ReactInstanceManager;

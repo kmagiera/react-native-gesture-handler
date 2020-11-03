@@ -1,9 +1,10 @@
 package com.swmansion.gesturehandler;
 
+import android.view.DragEvent;
 import android.view.MotionEvent;
 import android.view.View;
 
-import com.facebook.react.bridge.UiThreadUtil;
+//import com.facebook.react.bridge.UiThreadUtil;
 
 import java.util.Arrays;
 
@@ -65,12 +66,13 @@ public class GestureHandler<T extends GestureHandler> {
   private boolean mShouldCancelWhenOutside;
   private int mNumberOfPointers = 0;
 
-  private GestureHandlerOrchestrator mOrchestrator;
+  protected GestureHandlerOrchestrator mOrchestrator;
   private OnTouchEventListener<T> mListener;
-  private GestureHandlerInteractionController mInteractionController;
+  /*package*/ GestureHandlerInteractionController mInteractionController;
   /*package*/ int mActivationIndex; // set and accessed only by the orchestrator
   /*package*/ boolean mIsActive; // set and accessed only by the orchestrator
   /*package*/ boolean mIsAwaiting; // set and accessed only by the orchestrator
+  /*package*/ int mDropActivationIndex = Integer.MAX_VALUE; // set and accessed only by the orchestrator
 
   private static boolean hitSlopSet(float value) {
     return !Float.isNaN(value);
@@ -85,6 +87,11 @@ public class GestureHandler<T extends GestureHandler> {
   /*package*/ void dispatchTouchEvent(MotionEvent event) {
     if (mListener != null) {
       mListener.onTouchEvent((T) this, event);
+    }
+  }
+  /*package*/ void dispatchDragEvent(DragEvent event) {
+    if (mListener != null) {
+      mListener.onDragEvent((T) this, event);
     }
   }
 
@@ -332,6 +339,24 @@ public class GestureHandler<T extends GestureHandler> {
     }
   }
 
+  public final void handle(DragEvent origEvent) {
+    if (!mEnabled || mState == STATE_CANCELLED || mState == STATE_FAILED
+            || mState == STATE_END || mTrackedPointersCount < 1) {
+      return;
+    }
+
+    if (mShouldCancelWhenOutside && !mWithinBounds) {
+      if (mState == STATE_ACTIVE) {
+        cancel();
+      } else if (mState == STATE_BEGAN) {
+        fail();
+      }
+      return;
+    }
+
+    onHandle(origEvent);
+  }
+
   private void moveToState(int newState) {
     UiThreadUtil.assertOnUiThread();
     if (mState == newState) {
@@ -438,6 +463,10 @@ public class GestureHandler<T extends GestureHandler> {
     return posX >= left && posX <= right && posY >= top && posY <= bottom;
   }
 
+  public void detach() {
+    cancel();
+  }
+
   public final void cancel() {
     if (mState == STATE_ACTIVE || mState == STATE_UNDETERMINED || mState == STATE_BEGAN) {
       onCancel();
@@ -473,6 +502,15 @@ public class GestureHandler<T extends GestureHandler> {
     moveToState(STATE_FAILED);
   }
 
+  protected void onHandle(DragEvent event) {
+    // non drag/drop handlers should have the ability to run simultaneously during a DragEvent
+    // this is why we do not move to FAIL state as long as the drag event is bound to the root view
+    int action = event.getAction();
+    if (action == DragEvent.ACTION_DRAG_EXITED && (mState == STATE_BEGAN || mState == STATE_ACTIVE)) {
+      fail();
+    }
+  }
+
   protected void onStateChange(int newState, int previousState) {
   }
 
@@ -502,9 +540,9 @@ public class GestureHandler<T extends GestureHandler> {
     return null;
   }
 
-  public GestureHandler setOnTouchEventListener(OnTouchEventListener<T> listener) {
+  public T setOnTouchEventListener(OnTouchEventListener<T> listener) {
     mListener = listener;
-    return this;
+    return (T) this;
   }
 
   @Override

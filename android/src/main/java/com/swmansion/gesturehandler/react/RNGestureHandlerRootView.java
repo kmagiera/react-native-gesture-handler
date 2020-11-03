@@ -2,7 +2,9 @@ package com.swmansion.gesturehandler.react;
 
 import android.util.Log;
 import android.content.Context;
+import android.view.DragEvent;
 import android.view.MotionEvent;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
 
@@ -42,9 +44,7 @@ public class RNGestureHandlerRootView extends ReactViewGroup {
     mEnabled = !hasGestureHandlerEnabledRootView(this);
 
     if (!mEnabled) {
-      Log.i(
-              ReactConstants.TAG,
-              "[GESTURE HANDLER] Gesture handler is already enabled for a parent view");
+      Log.i(ReactConstants.TAG, "[GESTURE HANDLER] Gesture handler is already enabled for a parent view");
     }
 
     if (mEnabled && mRootHelper == null) {
@@ -73,4 +73,5 @@ public class RNGestureHandlerRootView extends ReactViewGroup {
     }
     super.requestDisallowInterceptTouchEvent(disallowIntercept);
   }
+
 }

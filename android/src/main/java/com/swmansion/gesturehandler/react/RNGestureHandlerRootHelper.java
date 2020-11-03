@@ -2,7 +2,9 @@ package com.swmansion.gesturehandler.react;
 
 import android.os.SystemClock;
 import android.util.Log;
+import android.view.DragEvent;
 import android.view.MotionEvent;
+import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewParent;
 
@@ -14,7 +16,7 @@ import com.facebook.react.views.modal.RNGHModalUtils;
 import com.swmansion.gesturehandler.GestureHandler;
 import com.swmansion.gesturehandler.GestureHandlerOrchestrator;
 
-public class RNGestureHandlerRootHelper {
+public class RNGestureHandlerRootHelper implements View.OnDragListener {
 
   private static final float MIN_ALPHA_FOR_TOUCH = 0.1f;
 
@@ -22,6 +24,7 @@ public class RNGestureHandlerRootHelper {
   private final GestureHandlerOrchestrator mOrchestrator;
   private final GestureHandler mJSGestureHandler;
   private final ViewGroup mRootView;
+  private final ViewGroup mWrappedView;
 
   private boolean mShouldIntercept = false;
   private boolean mPassingTouch = false;
@@ -33,8 +36,7 @@ public class RNGestureHandlerRootHelper {
       parent = parent.getParent();
     }
     if (parent == null) {
-      throw new IllegalStateException("View " + viewGroup + " has not been mounted under" +
-              " ReactRootView");
+      throw new IllegalStateException("View " + viewGroup + " has not been mounted under" + " ReactRootView");
     }
     return (ViewGroup) parent;
   }
@@ -49,31 +51,29 @@ public class RNGestureHandlerRootHelper {
     RNGestureHandlerModule module = context.getNativeModule(RNGestureHandlerModule.class);
     RNGestureHandlerRegistry registry = module.getRegistry();
 
+    mWrappedView = wrappedView;
     mRootView = findRootViewTag(wrappedView);
 
-    Log.i(
-            ReactConstants.TAG,
-            "[GESTURE HANDLER] Initialize gesture handler for root view " + mRootView);
+    Log.i(ReactConstants.TAG, "[GESTURE HANDLER] Initialize gesture handler for root view " + mRootView);
 
     mContext = context;
-    mOrchestrator = new GestureHandlerOrchestrator(
-            wrappedView, registry, new RNViewConfigurationHelper());
+    mOrchestrator = new GestureHandlerOrchestrator(wrappedView, registry, new RNViewConfigurationHelper());
     mOrchestrator.setMinimumAlphaForTraversal(MIN_ALPHA_FOR_TOUCH);
 
     mJSGestureHandler = new RootViewGestureHandler();
     mJSGestureHandler.setTag(-wrappedViewTag);
     registry.registerHandler(mJSGestureHandler);
     registry.attachHandlerToView(mJSGestureHandler.getTag(), wrappedViewTag);
-
+    mWrappedView.setOnDragListener(this);
     module.registerRootHelper(this);
   }
 
   public void tearDown() {
-    Log.i(
-            ReactConstants.TAG,
-            "[GESTURE HANDLER] Tearing down gesture handler registered for root view " + mRootView);
+    Log.i(ReactConstants.TAG, "[GESTURE HANDLER] Tearing down gesture handler registered for root view " + mRootView);
     RNGestureHandlerModule module = mContext.getNativeModule(RNGestureHandlerModule.class);
     module.getRegistry().dropHandler(mJSGestureHandler.getTag());
+    mWrappedView.setOnDragListener(null);
+    mOrchestrator.tearDown();
     module.unregisterRootHelper(this);
   }
 
@@ -82,6 +82,7 @@ public class RNGestureHandlerRootHelper {
   }
 
   private class RootViewGestureHandler extends GestureHandler {
+
     @Override
     protected void onHandle(MotionEvent event) {
       int currentState = getState();
@@ -90,6 +91,18 @@ public class RNGestureHandlerRootHelper {
         mShouldIntercept = false;
       }
       if (event.getActionMasked() == MotionEvent.ACTION_UP) {
+        end();
+      }
+    }
+
+    @Override
+    protected void onHandle(DragEvent event) {
+      int currentState = getState();
+      if (currentState == STATE_UNDETERMINED) {
+        begin();
+        mShouldIntercept = false;
+      }
+      if (event.getAction() == DragEvent.ACTION_DRAG_ENDED) {
         end();
       }
     }
@@ -109,18 +122,22 @@ public class RNGestureHandlerRootHelper {
   }
 
   public void requestDisallowInterceptTouchEvent(boolean disallowIntercept) {
-    // If this method gets called it means that some native view is attempting to grab lock for
+    // If this method gets called it means that some native view is attempting to
+    // grab lock for
     // touch event delivery. In that case we cancel all gesture recognizers
     if (mOrchestrator != null && !mPassingTouch) {
-      // if we are in the process of delivering touch events via GH orchestrator, we don't want to
+      // if we are in the process of delivering touch events via GH orchestrator, we
+      // don't want to
       // treat it as a native gesture capturing the lock
       tryCancelAllHandlers();
     }
   }
 
   public boolean dispatchTouchEvent(MotionEvent ev) {
-    // We mark `mPassingTouch` before we get into `mOrchestrator.onTouchEvent` so that we can tell
-    // if `requestDisallow` has been called as a result of a normal gesture handling process or
+    // We mark `mPassingTouch` before we get into `mOrchestrator.onTouchEvent` so
+    // that we can tell
+    // if `requestDisallow` has been called as a result of a normal gesture handling
+    // process or
     // as a result of one of the gesture handlers activating
     mPassingTouch = true;
     mOrchestrator.onTouchEvent(ev);
@@ -129,8 +146,17 @@ public class RNGestureHandlerRootHelper {
     return mShouldIntercept;
   }
 
+  @Override
+  public boolean onDrag(View v, DragEvent event) {
+    mPassingTouch = true;
+    boolean value = mOrchestrator.onDragEvent(event);
+    mPassingTouch = false;
+    return value;
+  }
+
   private void tryCancelAllHandlers() {
-    // In order to cancel handlers we activate handler that is hooked to the root view
+    // In order to cancel handlers we activate handler that is hooked to the root
+    // view
     if (mJSGestureHandler != null && mJSGestureHandler.getState() == GestureHandler.STATE_BEGAN) {
       // Try activate main JS handler
       mJSGestureHandler.activate();
@@ -138,7 +164,7 @@ public class RNGestureHandlerRootHelper {
     }
   }
 
-  /*package*/ void handleSetJSResponder(final int viewTag, final boolean blockNativeResponder) {
+  /* package */ void handleSetJSResponder(final int viewTag, final boolean blockNativeResponder) {
     if (blockNativeResponder) {
       UiThreadUtil.runOnUiThread(new Runnable() {
         @Override
