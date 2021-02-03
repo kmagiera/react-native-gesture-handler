@@ -1,6 +1,7 @@
 package com.swmansion.gesturehandler;
 
 import android.content.Context;
+import android.graphics.Rect;
 import android.view.MotionEvent;
 import android.view.VelocityTracker;
 import android.view.ViewConfiguration;
@@ -12,6 +13,8 @@ public class PanGestureHandler extends GestureHandler<PanGestureHandler> {
 
   private static int DEFAULT_MIN_POINTERS = 1;
   private static int DEFAULT_MAX_POINTERS = 10;
+
+  private static Rect EMPTY_RECT = new Rect(0, 0, 0, 0);
 
   private float mMinDistSq = MAX_VALUE_IGNORE;
 
@@ -32,6 +35,9 @@ public class PanGestureHandler extends GestureHandler<PanGestureHandler> {
   private float mMinVelocitySq = MIN_VALUE_IGNORE;
   private int mMinPointers = DEFAULT_MIN_POINTERS;
   private int mMaxPointers = DEFAULT_MAX_POINTERS;
+
+  private Rect mMinDistFromEdge = EMPTY_RECT;
+  private Rect mMaxDistFromEdge = EMPTY_RECT;
 
   private float mStartX, mStartY;
   private float mOffsetX, mOffsetY;
@@ -137,7 +143,69 @@ public class PanGestureHandler extends GestureHandler<PanGestureHandler> {
     return this;
   }
 
+  public PanGestureHandler setMinDistFromEdge(Rect minDistFromEdge) {
+      mMinDistFromEdge = minDistFromEdge;
+      return this;
+  }
+
+  public PanGestureHandler setMaxDistFromEdge(Rect maxDistFromEdge) {
+      mMaxDistFromEdge = maxDistFromEdge;
+      return this;
+  }
+
+  /**
+   * @return Returns true if the user began the gesture inside of the specified activation criteria's bounds (`maxDistFromEdge` rect)
+   */
+  private boolean isWithinMaxDistBounds() {
+      if (mMaxDistFromEdge.isEmpty())
+          return true;
+
+      float viewHeight = getView().getHeight();
+      float viewWidth = getView().getWidth();
+      float density = getDensity();
+
+      float distLeft = mMaxDistFromEdge.left * density;
+      float distTop = mMaxDistFromEdge.top * density;
+      float distRight = mMaxDistFromEdge.right * density;
+      float distBottom = mMaxDistFromEdge.bottom * density;
+
+      boolean isWithinBoundsX = true;
+      boolean isWithinBoundsY = true;
+
+      if (distLeft > 0 || distRight > 0)
+        isWithinBoundsX = mStartX <= distLeft || mStartX >= (viewWidth - distRight);
+      if (distTop > 0 || distBottom > 0)
+        isWithinBoundsY = mStartY <= distTop || mStartY >= (viewHeight - distBottom);
+
+      return isWithinBoundsX && isWithinBoundsY;
+  }
+
+  /**
+   * @return Returns true if the user began the gesture inside of the specified activation criteria's bounds (`minDistFromEdge` rect)
+   */
+  private boolean isWithinMinDistBounds() {
+      if (mMinDistFromEdge.isEmpty())
+          return true;
+
+      float viewHeight = getView().getHeight();
+      float viewWidth = getView().getWidth();
+      float density = getDensity();
+
+      float distLeft = mMinDistFromEdge.left * density;
+      float distTop = mMinDistFromEdge.top * density;
+      float distRight = mMinDistFromEdge.right * density;
+      float distBottom = mMinDistFromEdge.bottom * density;
+      boolean isWithinBoundsX = mStartX >= distLeft && mStartX <= (viewWidth - distRight);
+      boolean isWithinBoundsY = mStartY >= distTop && mStartY <= (viewHeight - distBottom);
+
+      return isWithinBoundsX && isWithinBoundsY;
+  }
+
   private boolean shouldActivate() {
+    if (!isWithinMinDistBounds() || !isWithinMaxDistBounds()) {
+      return false;
+    }
+
     float dx = mLastX - mStartX + mOffsetX;
     if (mActiveOffsetXStart != MIN_VALUE_IGNORE && dx < mActiveOffsetXStart) {
       return true;
@@ -182,8 +250,11 @@ public class PanGestureHandler extends GestureHandler<PanGestureHandler> {
   }
 
   private boolean shouldFail() {
-    float dx = mLastX - mStartX + mOffsetX;
+    if (!isWithinMinDistBounds() || !isWithinMaxDistBounds()) {
+        return false;
+    }
 
+    float dx = mLastX - mStartX + mOffsetX;
     if (mFailOffsetXStart != MAX_VALUE_IGNORE && dx < mFailOffsetXStart) {
       return true;
     }

@@ -24,6 +24,8 @@
 @property (nonatomic) CGFloat activeOffsetYEnd;
 @property (nonatomic) CGFloat failOffsetYStart;
 @property (nonatomic) CGFloat failOffsetYEnd;
+@property (nonatomic) UIEdgeInsets minDistFromEdge;
+@property (nonatomic) UIEdgeInsets maxDistFromEdge;
 
 
 - (id)initWithGestureHandler:(RNGestureHandler*)gestureHandler;
@@ -53,6 +55,8 @@
     _activeOffsetYEnd = NAN;
     _failOffsetYStart = NAN;
     _failOffsetYEnd = NAN;
+    _minDistFromEdge = UIEdgeInsetsZero;
+    _maxDistFromEdge = UIEdgeInsetsZero;
     _hasCustomActivationCriteria = NO;
 #if !TARGET_OS_TV
     _realMinimumNumberOfTouches = self.minimumNumberOfTouches;
@@ -118,16 +122,56 @@
   [super reset];
 }
 
+- (BOOL)isWithinMinDistBounds
+{
+  if (UIEdgeInsetsEqualToEdgeInsets(_maxDistFromEdge, UIEdgeInsetsZero)) {
+    return YES;
+  }
+    
+  CGPoint location = [self locationInView:self.view];
+  CGSize viewSize = self.view.bounds.size;
+  
+  BOOL isWithinBoundsX = location.x >= _minDistFromEdge.left && location.x <= (viewSize.width - _minDistFromEdge.right);
+  BOOL isWithinBoundsY = location.y >= _minDistFromEdge.top && location.y <= (viewSize.height - _minDistFromEdge.bottom);
+  return isWithinBoundsX && isWithinBoundsY;
+}
+
+- (BOOL)isWithinMaxDistBounds
+{
+  if (UIEdgeInsetsEqualToEdgeInsets(_maxDistFromEdge, UIEdgeInsetsZero)) {
+    return YES;
+  }
+    
+  CGPoint location = [self locationInView:self.view];
+  CGSize viewSize = self.view.bounds.size;
+    
+  BOOL isWithinBoundsX = YES;
+  BOOL isWithinBoundsY = YES;
+    
+  if (_maxDistFromEdge.left > 0 || _maxDistFromEdge.right > 0)
+    isWithinBoundsX = location.x <= _maxDistFromEdge.left || location.x >= (viewSize.width - _maxDistFromEdge.right);
+  if (_maxDistFromEdge.top > 0 || _maxDistFromEdge.bottom > 0)
+    isWithinBoundsY = location.y <= _maxDistFromEdge.top || location.y >= (viewSize.height - _maxDistFromEdge.bottom);
+    
+  return isWithinBoundsX && isWithinBoundsY;
+}
+
 - (void)updateHasCustomActivationCriteria
 {
   _hasCustomActivationCriteria = !isnan(_minDistSq)
   || !isnan(_minVelocityX) || !isnan(_minVelocityY) || !isnan(_minVelocitySq)
   || !isnan(_activeOffsetXStart) || !isnan(_activeOffsetXEnd)
-  ||  !isnan(_activeOffsetYStart) || !isnan(_activeOffsetYEnd);
+  ||  !isnan(_activeOffsetYStart) || !isnan(_activeOffsetYEnd)
+  || _minDistFromEdge.left > 0 || _minDistFromEdge.top > 0
+  || _minDistFromEdge.right > 0 || _minDistFromEdge.bottom > 0;
 }
 
 - (BOOL)shouldFailUnderCustomCriteria
 {
+  if (![self isWithinMinDistBounds] || ![self isWithinMaxDistBounds]) {
+    return YES;
+  }
+    
   CGPoint trans = [self translationInView:self.view];
   if (!isnan(_failOffsetXStart) && trans.x < _failOffsetXStart) {
     return YES;
@@ -146,6 +190,10 @@
 
 - (BOOL)shouldActivateUnderCustomCriteria
 {
+  if (![self isWithinMinDistBounds] || ![self isWithinMaxDistBounds]) {
+    return NO;
+  }
+
   CGPoint trans = [self translationInView:self.view];
   if (!isnan(_activeOffsetXStart) && trans.x < _activeOffsetXStart) {
     return YES;
@@ -205,15 +253,17 @@
   APPLY_FLOAT_PROP(activeOffsetYEnd);
   APPLY_FLOAT_PROP(failOffsetYStart);
   APPLY_FLOAT_PROP(failOffsetYEnd);
-
-#if !TARGET_OS_TV && __IPHONE_OS_VERSION_MAX_ALLOWED >= 130400
+  APPLY_UIEDGEINSETS_PROP(minDistFromEdge);
+  APPLY_UIEDGEINSETS_PROP(maxDistFromEdge);
+  
   if (@available(iOS 13.4, *)) {
     bool enableTrackpadTwoFingerGesture = [RCTConvert BOOL:config[@"enableTrackpadTwoFingerGesture"]];
     if(enableTrackpadTwoFingerGesture){
       recognizer.allowedScrollTypesMask = UIScrollTypeMaskAll;
     }
   }
-
+  
+#if !TARGET_OS_TV
   APPLY_NAMED_INT_PROP(minimumNumberOfTouches, @"minPointers");
   APPLY_NAMED_INT_PROP(maximumNumberOfTouches, @"maxPointers");
 #endif

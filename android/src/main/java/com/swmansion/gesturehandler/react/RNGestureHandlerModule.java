@@ -1,6 +1,7 @@
 package com.swmansion.gesturehandler.react;
 
 import android.content.Context;
+import android.graphics.Rect;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -80,6 +81,8 @@ public class RNGestureHandlerModule extends ReactContextBaseJavaModule {
   private static final String KEY_PAN_MIN_POINTERS = "minPointers";
   private static final String KEY_PAN_MAX_POINTERS = "maxPointers";
   private static final String KEY_PAN_AVG_TOUCHES = "avgTouches";
+  private static final String KEY_PAN_MIN_DIST_FROM_EDGE = "minDistFromEdge";
+  private static final String KEY_PAN_MAX_DIST_FROM_EDGE = "maxDistFromEdge";
   private static final String KEY_NUMBER_OF_POINTERS = "numberOfPointers";
   private static final String KEY_DIRECTION= "direction";
 
@@ -320,6 +323,28 @@ public class RNGestureHandlerModule extends ReactContextBaseJavaModule {
       }
       if (config.hasKey(KEY_PAN_AVG_TOUCHES)) {
         handler.setAverageTouches(config.getBoolean(KEY_PAN_AVG_TOUCHES));
+      }
+      if (config.hasKey(KEY_PAN_MIN_DIST_FROM_EDGE)) {
+        ReadableMap minDistFromEdgeMap = config.getMap(KEY_PAN_MIN_DIST_FROM_EDGE);
+        if (minDistFromEdgeMap != null) {
+          handler.setMinDistFromEdge(new Rect(
+                  minDistFromEdgeMap.getInt("left"),
+                  minDistFromEdgeMap.getInt("top"),
+                  minDistFromEdgeMap.getInt("right"),
+                  minDistFromEdgeMap.getInt("bottom")
+          ));
+        }
+      }
+      if (config.hasKey(KEY_PAN_MAX_DIST_FROM_EDGE)) {
+        ReadableMap maxDistFromEdgeMap = config.getMap(KEY_PAN_MAX_DIST_FROM_EDGE);
+        if (maxDistFromEdgeMap != null) {
+          handler.setMaxDistFromEdge(new Rect(
+                  maxDistFromEdgeMap.getInt("left"),
+                  maxDistFromEdgeMap.getInt("top"),
+                  maxDistFromEdgeMap.getInt("right"),
+                  maxDistFromEdgeMap.getInt("bottom")
+          ));
+        }
       }
     }
 

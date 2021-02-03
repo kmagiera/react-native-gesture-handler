@@ -215,6 +215,24 @@ function transformPanGestureHandlerProps(props) {
     }
   }
 
+  if (props.minDistFromEdge != null) {
+    res.minDistFromEdge = {
+      left: props.minDistFromEdge.left ?? 0,
+      top: props.minDistFromEdge.top ?? 0,
+      right: props.minDistFromEdge.right ?? 0,
+      bottom: props.minDistFromEdge.bottom ?? 0,
+    }
+  }
+
+  if (props.maxDistFromEdge != null) {
+    res.maxDistFromEdge = {
+      left: props.maxDistFromEdge.left ?? 0,
+      top: props.maxDistFromEdge.top ?? 0,
+      right: props.maxDistFromEdge.right ?? 0,
+      bottom: props.maxDistFromEdge.bottom ?? 0,
+    }
+  }
+
   return res;
 }
 
@@ -252,6 +270,8 @@ export const PanGestureHandler = createHandler(
     minPointers: PropTypes.number,
     maxPointers: PropTypes.number,
     avgTouches: PropTypes.bool,
+    minDistFromEdge: PropTypes.object,
+    maxDistFromEdge: PropTypes.object,
     enableTrackpadTwoFingerGesture: PropTypes.bool,
   },
   {},
